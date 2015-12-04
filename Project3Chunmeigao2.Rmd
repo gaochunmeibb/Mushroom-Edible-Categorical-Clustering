@@ -1,6 +1,6 @@
 ---
 title: "Project3Chunmeigao2"
-author: "Chunmei Gao"
+author: "Chunmei Gao$$$$$$"
 date: "December 1, 2015"
 output: html_document
 ---
