@@ -1,0 +1,165 @@
+---
+title: "Project3Chunmeigao2"
+author: "Chunmei Gao"
+date: "December 1, 2015"
+output: html_document
+---
+**rpart, C50, and randomForests. The objective is to determine if these techniques can distinguish between the two types of mushrooms.Which technique gives the best results? Why?**
+```{r}
+# Please change the folder directory#
+
+# Assign names to each variables
+MushroomsDataImport <- dget("~/Documents/6907_bigdata_analysis/homework3/TableCodeFilling.R")
+mushroom <- MushroomsDataImport("~/Documents/6907_bigdata_analysis/homework3/agaricus-lepiota.data")
+
+# transfer the response variable as factor for modeling
+mushroom <- as.data.frame(mushroom)
+for( i in 1:ncol(mushroom)){
+    mushroom[,i] <- as.factor(mushroom[,i])
+}
+
+# delete variable:veilType. Because value in veilType are all the same.
+mushroom$veilType <- NULL
+
+str(mushroom)
+
+#-------------------------------------------------------------------------#
+# train-test 70%-30%
+set.seed(92)
+train70_index <- sample(nrow(mushroom), 0.7*nrow(mushroom),replace = F)
+mushroom_train <-as.data.frame(mushroom[train70_index,])
+mushroom_test <- as.data.frame(mushroom[-train70_index,])
+dim(mushroom_train) # 5686   23
+dim(mushroom_test) # 2437    23
+table(mushroom_train$Type) #Edible 2944      Poisonous 2742
+table(mushroom_test$Type) #Edible 1264       Poisonous  1173
+```
+
+
+
+```{r}
+#-------------------------------------------------------------------------------
+#-----------------------Setup Parallel Processing-------------------------------
+#-------------------------------------------------------------------------------
+
+#number of bootstrap samples to create
+sampleCount <- 4
+
+# Run in parallel on Linux using doMC (uncomment for Linux parallel cluster)
+#library(doMC)
+#registerDoMC(cores=sampleCount) #<- # of processors / hyperthreads on machine
+
+# Run in parallel on Windows using doSNOW (uncomment for Windows parallel cluster)
+install.packages("doSNOW")
+library(doSNOW)
+cluster<-makeCluster(sampleCount) #<- # of processors / hyperthreads on machine
+registerDoSNOW(cluster)
+require(foreach, quiet=TRUE)
+
+
+
+#--------------------
+require(parallel, quiet=TRUE)
+detectCores()
+n.cores <- detectCores()-1
+```
+
+
+```{r}
+library(rpart)
+# if y is a factor then method = "class" is assumed
+mush_rpart <- rpart(Type~.,data=mushroom_train,method="class")
+#summary
+summary(mush_rpart)
+printcp(mush_rpart) # display the results 
+#plot
+prp(mush_rpart,extra=1)
+plotcp(mush_rpart) # visualize cross-validation 
+
+# predict
+mush_rpart_test_prob <- predict(mush_rpart,newdata=mushroom_test,type="class")
+
+# evaluation
+confusion_rpart <- table(mushroom_test$Type,mush_rpart_test_prob)
+confusion_rpart
+error_rpart <- (confusion_rpart[1,2]+confusion_rpart[2,1])/sum(confusion_rpart)
+error_rpart
+#auc
+
+
+# plot tree 
+plot(mush_rpart, uniform=TRUE,  main="Classification Tree for CHD")
+text(mush_rpart, use.n=TRUE, all=TRUE, cex=.8)
+
+
+# prune the tree 
+# Specifically, use printcp( ) to examine the cross-validated error results, 
+# select the complexity parameter associated with minimum error
+# and place it into the prune( ) function. 
+# Alternatively, you can use the code fragment
+# fit$cptable[which.min(fit$cptable[,"xerror"]),"CP"]
+#to automatically select the complexity parameter associated with 
+# the smallest cross-validated error
+pfit<- prune(fit, cp=fit$cptable[which.min(fit$cptable[,"xerror"]),"CP"])
+
+# plot the pruned tree 
+plot(pfit, uniform=TRUE, 
+main="Pruned Classification Tree for CHD")
+text(pfit, use.n=TRUE, all=TRUE, cex=.8)
+post(pfit, file = "Ch11-CHD-tree2.ps", 
+title = "Pruned Classification Tree for CHD")
+
+
+
+
+
+printcp(fit)	display cp table
+plotcp(fit)	plot cross-validation results
+rsq.rpart(fit)	plot approximate R-squared and relative error for different splits (2 plots). labels are only appropriate for the "anova" method.
+print(fit)	print results
+summary(fit)	detailed results including surrogate splits
+plot(fit)	plot decision tree
+text(fit)	label the decision tree plot
+post(fit, file=)	create postscript plot of decision tree
+```
+
+```{r}
+# random forest
+library(randomForest)
+
+# Training the model
+str(mushroom_test)
+mushroom_rf_train = randomForest(Type~.,data = mushroom_train)
+# analysis: and √p variables when building a random forest of classification trees. # We could change the number of trees grown by randomForest() using the ntree argument:
+
+
+#Using the importance() function, we can view the importance of each importance() variable.
+importance(mushroom_rf_train)
+varImpPlot(mushroom_rf_train) ##Plot the most important variables
+#In the case of regression trees, the node impurity is measured by the training RSS, and for classification trees by the deviance. Plots of these importance measures can be produced using the varImpPlot() function.
+
+```
+
+
+```{r}
+# e1701(svm), class(knn), Bayesian, or neural networks,logistic
+library(e1071)
+timer <- proc.time()
+modelDataSvm <- foreach(i = 1:sampleCount) %dopar% {
+                    library(e1071)
+                    svm(as.factor(Type)~.,data=mushroom_train, probability=TRUE, cost=10, gamma=0.1)
+                }                
+proc.time() - timer 
+```
+
+```{r}
+# C5.0
+#Fit classification tree models or rule-based models using Quinlan's C5.0 algorithm
+library(C50)
+mushroom_train <- as.data.frame(mushroom_train,stringASFactor=FALSE)
+mush_c50 <- C50::C5.0(x=mushroom_train[,-1] ,y = mushroom_train$Type)
+summary(mush_c50)
+plot(mush_c50)## i dont know why it cannot run
+# how to plt it and explain it 
+```
+
